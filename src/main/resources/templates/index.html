@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>スマート冷蔵庫ナビ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-zinc-50 text-zinc-900">
+<main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
+    <header class="flex flex-col gap-3 border-b border-zinc-200 pb-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <p class="text-sm font-medium text-emerald-700">ひとり暮らしの食材管理</p>
+            <h1 class="mt-1 text-2xl font-bold tracking-normal text-zinc-950 sm:text-3xl">スマート冷蔵庫ナビ 🏠</h1>
+        </div>
+        <div class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+            冷蔵庫の中身から、今作れる料理を提案します
+        </div>
+    </header>
+
+    <section class="rounded-lg border border-red-100 bg-white p-4 shadow-sm sm:p-5">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="text-lg font-bold text-zinc-950">【消費期限間近】早めに使うべき食材 🚨</h2>
+            <span class="text-sm text-zinc-500">まずはここから使い切りましょう</span>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-3">
+            <span class="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">
+                豆腐 <span class="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">残り 3日</span>
+            </span>
+            <span class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
+                卵 <span class="rounded-full bg-amber-500 px-2 py-0.5 text-xs text-white">残り 5日</span>
+            </span>
+        </div>
+    </section>
+
+    <section class="flex flex-1 flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-zinc-950">現在の食材で作れるおすすめレシピ 🍳</h2>
+                <p class="mt-1 text-sm text-zinc-500">食材一致率が高い順に表示しています。</p>
+            </div>
+            <button id="reloadButton"
+                    class="inline-flex items-center justify-center rounded-md bg-emerald-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-emerald-700">
+                再読み込み
+            </button>
+        </div>
+
+        <div id="statusMessage" class="mt-5 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            レシピを読み込んでいます...
+        </div>
+
+        <div id="recipeGrid" class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+    </section>
+</main>
+
+<script>
+    const recipeGrid = document.getElementById('recipeGrid');
+    const statusMessage = document.getElementById('statusMessage');
+    const reloadButton = document.getElementById('reloadButton');
+
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#039;');
+    }
+
+    function formatRate(value) {
+        const number = Number(value);
+        if (Number.isNaN(number)) {
+            return '0';
+        }
+        return Number.isInteger(number) ? String(number) : number.toFixed(1);
+    }
+
+    function renderMissingMaterials(materials) {
+        if (!materials || materials.length === 0) {
+            return '<p class="text-sm font-bold text-emerald-700">不足している食材はありません。</p>';
+        }
+        return `
+            <ul class="mt-2 flex flex-wrap gap-2">
+                ${materials.map(material => `
+                    <li class="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700">
+                        ${escapeHtml(material)}
+                    </li>
+                `).join('')}
+            </ul>
+        `;
+    }
+
+    function recipeCard(recipe) {
+        const title = escapeHtml(recipe.title);
+        const linkUrl = escapeHtml(recipe.linkUrl);
+        const imageUrl = escapeHtml(recipe.imageUrl);
+        const matchRate = formatRate(recipe.matchRate);
+        const missingMaterials = Array.isArray(recipe.missingMaterials) ? recipe.missingMaterials : [];
+
+        return `
+            <article class="flex h-full flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+                <img src="${imageUrl}" alt="${title}" class="h-44 w-full bg-zinc-100 object-cover">
+                <div class="flex flex-1 flex-col gap-4 p-4">
+                    <div class="flex items-start justify-between gap-3">
+                        <h3 class="line-clamp-2 text-base font-bold leading-6 text-zinc-950">${title}</h3>
+                        <span class="shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+                            食材一致率: ${matchRate}%
+                        </span>
+                    </div>
+                    <div class="rounded-md bg-zinc-50 p-3">
+                        <p class="text-sm font-bold text-zinc-800">足りない食材（買い物リスト）🛒</p>
+                        ${renderMissingMaterials(missingMaterials)}
+                    </div>
+                    <a href="${linkUrl}" target="_blank" rel="noopener noreferrer"
+                       class="mt-auto inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-bold text-white transition hover:bg-zinc-700">
+                        レシピを見る（楽天へ）
+                    </a>
+                </div>
+            </article>
+        `;
+    }
+
+    async function loadRecipes() {
+        recipeGrid.innerHTML = '';
+        statusMessage.classList.remove('hidden');
+        statusMessage.textContent = 'レシピを読み込んでいます...';
+
+        try {
+            const response = await fetch('/api/recipes/recommend');
+            if (!response.ok) {
+                const errorDetail = await readErrorDetail(response);
+                throw new Error(errorDetail || 'レシピ情報の取得に失敗しました。');
+            }
+
+            const recipes = await response.json();
+            const sortedRecipes = Array.isArray(recipes)
+                ? [...recipes].sort((a, b) => Number(b.matchRate || 0) - Number(a.matchRate || 0))
+                : [];
+
+            if (sortedRecipes.length === 0) {
+                statusMessage.textContent = '該当するレシピが見つかりませんでした。';
+                return;
+            }
+
+            statusMessage.classList.add('hidden');
+            recipeGrid.innerHTML = sortedRecipes.map(recipeCard).join('');
+        } catch (error) {
+            statusMessage.textContent = `レシピ情報を取得できませんでした。${error.message}`;
+        }
+    }
+
+    async function readErrorDetail(response) {
+        try {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json') || contentType.includes('application/problem+json')) {
+                const body = await response.json();
+                return body.detail || body.title || '';
+            }
+            return await response.text();
+        } catch (error) {
+            return '';
+        }
+    }
+
+    reloadButton.addEventListener('click', loadRecipes);
+    window.addEventListener('DOMContentLoaded', loadRecipes);
+</script>
+</body>
+</html>

@@ -165,11 +165,15 @@ public class NotionClient {
     }
 
     private void validateConfiguration() {
-        if (!StringUtils.hasText(properties.apiKey())) {
+        if (isMissingOrPlaceholder(properties.apiKey(), "your_actual_api_key_here")) {
             throw new NotionClientException("Missing notion.api-key. Set NOTION_API_KEY or notion.api-key.");
         }
-        if (!StringUtils.hasText(properties.databaseId())) {
+        if (isMissingOrPlaceholder(properties.databaseId(), "your_actual_database_id_here")) {
             throw new NotionClientException("Missing notion.database-id. Set NOTION_DATABASE_ID or notion.database-id.");
         }
+    }
+
+    private boolean isMissingOrPlaceholder(String value, String placeholder) {
+        return !StringUtils.hasText(value) || placeholder.equals(value.trim());
     }
 }

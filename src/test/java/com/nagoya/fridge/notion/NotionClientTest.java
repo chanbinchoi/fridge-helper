@@ -96,7 +96,15 @@ class NotionClientTest {
                         """, MediaType.APPLICATION_JSON));
 
         NotionClient client = new NotionClient(
-                new NotionProperties("notion-secret", "database-id", "https://api.notion.test", "2026-03-11"),
+                new NotionProperties(
+                        "notion-secret",
+                        "database-id",
+                        "https://api.notion.test",
+                        "2026-03-11",
+                        "",
+                        "在庫ステータス",
+                        "在庫あり"
+                ),
                 builder.build(),
                 objectMapper,
                 clock
@@ -118,7 +126,15 @@ class NotionClientTest {
     @Test
     void fetchRawDatabasePagesFailsWhenConfigurationIsMissing() {
         NotionClient client = new NotionClient(
-                new NotionProperties("", "database-id", "https://api.notion.test", "2026-03-11"),
+                new NotionProperties(
+                        "",
+                        "database-id",
+                        "https://api.notion.test",
+                        "2026-03-11",
+                        "",
+                        "在庫ステータス",
+                        "在庫あり"
+                ),
                 RestClient.builder().baseUrl("https://api.notion.test").build(),
                 objectMapper,
                 clock

@@ -19,4 +19,9 @@ public class IngredientController {
     public NotionRawQueryResult getRawIngredients() {
         return ingredientRawDataService.fetchRawIngredients();
     }
+
+    @GetMapping("/names")
+    public IngredientNamesResult getIngredientNames() {
+        return ingredientRawDataService.fetchIngredientNames();
+    }
 }

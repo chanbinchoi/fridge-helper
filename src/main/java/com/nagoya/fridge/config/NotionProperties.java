@@ -7,6 +7,9 @@ public record NotionProperties(
         String apiKey,
         String databaseId,
         String baseUrl,
-        String version
+        String version,
+        String ingredientNameProperty,
+        String stockStatusProperty,
+        String inStockValue
 ) {
 }
