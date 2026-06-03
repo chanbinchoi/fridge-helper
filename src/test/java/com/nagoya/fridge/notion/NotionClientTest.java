@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -45,6 +46,23 @@ class NotionClientTest {
 
         server.expect(once(), requestTo("https://api.notion.test/v1/data_sources/data-source-id/query"))
                 .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "page_size": 100,
+                          "filter": {
+                            "property": "在庫ステータス",
+                            "status": {
+                              "equals": "在庫あり"
+                            }
+                          },
+                          "sorts": [
+                            {
+                              "timestamp": "last_edited_time",
+                              "direction": "descending"
+                            }
+                          ]
+                        }
+                        """))
                 .andRespond(withSuccess("""
                         {
                           "object": "list",
@@ -71,6 +89,24 @@ class NotionClientTest {
 
         server.expect(once(), requestTo("https://api.notion.test/v1/data_sources/data-source-id/query"))
                 .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {
+                          "page_size": 100,
+                          "filter": {
+                            "property": "在庫ステータス",
+                            "status": {
+                              "equals": "在庫あり"
+                            }
+                          },
+                          "sorts": [
+                            {
+                              "timestamp": "last_edited_time",
+                              "direction": "descending"
+                            }
+                          ],
+                          "start_cursor": "cursor-2"
+                        }
+                        """))
                 .andRespond(withSuccess("""
                         {
                           "object": "list",
@@ -102,6 +138,7 @@ class NotionClientTest {
                         "https://api.notion.test",
                         "2026-03-11",
                         "",
+                        "使用期限",
                         "在庫ステータス",
                         "在庫あり"
                 ),
@@ -132,6 +169,7 @@ class NotionClientTest {
                         "https://api.notion.test",
                         "2026-03-11",
                         "",
+                        "使用期限",
                         "在庫ステータス",
                         "在庫あり"
                 ),

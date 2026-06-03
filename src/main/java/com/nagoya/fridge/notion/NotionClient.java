@@ -4,10 +4,13 @@ import com.nagoya.fridge.config.NotionProperties;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
@@ -18,6 +21,7 @@ import tools.jackson.databind.ObjectMapper;
 @Component
 public class NotionClient {
 
+    private static final Logger log = LoggerFactory.getLogger(NotionClient.class);
     private static final int PAGE_SIZE = 100;
 
     private final NotionProperties properties;
@@ -50,8 +54,18 @@ public class NotionClient {
         validateConfiguration();
 
         String databaseId = properties.databaseId();
+        log.info(
+                "Starting Notion database query: databaseId={}, filter={}.status == {}",
+                databaseId,
+                properties.stockStatusProperty(),
+                properties.inStockValue()
+        );
         String dataSourceId = findPrimaryDataSourceId(databaseId);
         List<NotionRawPage> pages = queryAllPages(dataSourceId);
+        log.info("Completed Notion database query: databaseId={}, dataSourceId={}, fetchedPages={}",
+                databaseId,
+                dataSourceId,
+                pages.size());
 
         return new NotionRawQueryResult(
                 databaseId,
@@ -101,12 +115,26 @@ public class NotionClient {
     }
 
     private Map<String, Object> queryBody(String startCursor) {
-        if (!StringUtils.hasText(startCursor)) {
-            return Map.of("page_size", PAGE_SIZE);
+        List<Map<String, String>> sorts = List.of(Map.of(
+                "timestamp", "last_edited_time",
+                "direction", "descending"
+        ));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("page_size", PAGE_SIZE);
+        body.put("filter", stockStatusFilter());
+        body.put("sorts", sorts);
+
+        if (StringUtils.hasText(startCursor)) {
+            body.put("start_cursor", startCursor);
         }
+
+        return body;
+    }
+
+    private Map<String, Object> stockStatusFilter() {
         return Map.of(
-                "page_size", PAGE_SIZE,
-                "start_cursor", startCursor
+                "property", properties.stockStatusProperty().trim(),
+                "status", Map.of("equals", properties.inStockValue().trim())
         );
     }
 
@@ -170,6 +198,12 @@ public class NotionClient {
         }
         if (isMissingOrPlaceholder(properties.databaseId(), "your_actual_database_id_here")) {
             throw new NotionClientException("Missing notion.database-id. Set NOTION_DATABASE_ID or notion.database-id.");
+        }
+        if (!StringUtils.hasText(properties.stockStatusProperty())) {
+            throw new NotionClientException("Missing notion.stock-status-property.");
+        }
+        if (!StringUtils.hasText(properties.inStockValue())) {
+            throw new NotionClientException("Missing notion.in-stock-value.");
         }
     }
 

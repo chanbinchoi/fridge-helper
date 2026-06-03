@@ -5,11 +5,18 @@ import com.nagoya.fridge.notion.NotionClient;
 import com.nagoya.fridge.notion.NotionRawPage;
 import com.nagoya.fridge.notion.NotionRawQueryResult;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -20,13 +27,21 @@ import tools.jackson.databind.JsonNode;
 public class IngredientRawDataService {
 
     private static final Logger log = LoggerFactory.getLogger(IngredientRawDataService.class);
+    private static final ZoneId TOKYO_ZONE = ZoneId.of("Asia/Tokyo");
 
     private final NotionClient notionClient;
     private final NotionProperties notionProperties;
+    private final Clock clock;
 
+    @Autowired
     public IngredientRawDataService(NotionClient notionClient, NotionProperties notionProperties) {
+        this(notionClient, notionProperties, Clock.system(TOKYO_ZONE));
+    }
+
+    IngredientRawDataService(NotionClient notionClient, NotionProperties notionProperties, Clock clock) {
         this.notionClient = notionClient;
         this.notionProperties = notionProperties;
+        this.clock = clock;
     }
 
     public NotionRawQueryResult fetchRawIngredients() {
@@ -36,22 +51,64 @@ public class IngredientRawDataService {
     public IngredientNamesResult fetchIngredientNames() {
         NotionRawQueryResult rawIngredients = fetchRawIngredients();
         Set<String> names = new LinkedHashSet<>();
-        log.info("Notion 원본 식재료 페이지 수: {}", rawIngredients.pages().size());
+        log.info("Notion raw ingredient page count: {}", rawIngredients.pages().size());
 
         rawIngredients.pages().stream()
                 .filter(page -> !page.archived() && !page.inTrash())
-                .filter(this::isInStock)
                 .map(this::extractIngredientName)
                 .flatMap(Optional::stream)
                 .forEach(names::add);
 
-        log.info("재고 필터 적용 후 추출된 식재료명: {}", names);
+        log.info("Ingredient names extracted after applying the Notion stock filter: {}", names);
 
         return new IngredientNamesResult(
                 Instant.now(),
                 names.size(),
                 names.stream().toList()
         );
+    }
+
+    public IngredientItemsResult fetchIngredientItems() {
+        NotionRawQueryResult rawIngredients = fetchRawIngredients();
+        LocalDate today = LocalDate.now(clock.withZone(TOKYO_ZONE));
+        List<IngredientItemDto> items = rawIngredients.pages().stream()
+                .filter(page -> !page.archived() && !page.inTrash())
+                .map(page -> toIngredientItem(page, today))
+                .flatMap(Optional::stream)
+                .sorted(Comparator
+                        .comparing(
+                                IngredientItemDto::daysRemaining,
+                                Comparator.nullsLast(Integer::compareTo)
+                        )
+                        .thenComparing(IngredientItemDto::name))
+                .toList();
+
+        log.info("Created {} ingredient items for the frontend: {}", items.size(), items);
+
+        return new IngredientItemsResult(
+                Instant.now(),
+                items.size(),
+                items
+        );
+    }
+
+    private Optional<IngredientItemDto> toIngredientItem(NotionRawPage page, LocalDate today) {
+        Optional<String> name = extractIngredientName(page);
+        if (name.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Optional<LocalDate> expirationDate = extractExpirationDate(page);
+        Integer daysRemaining = expirationDate
+                .map(date -> (int) ChronoUnit.DAYS.between(today, date))
+                .orElse(null);
+
+        return Optional.of(new IngredientItemDto(
+                page.id(),
+                name.get(),
+                expirationDate.orElse(null),
+                daysRemaining
+        ));
     }
 
     private Optional<String> extractIngredientName(NotionRawPage page) {
@@ -63,7 +120,7 @@ public class IngredientRawDataService {
                 return configuredName;
             }
             log.info(
-                    "설정된 식재료명 컬럼 '{}'에서 title 값을 찾지 못해 page {}의 title 속성을 자동 탐색합니다.",
+                    "Configured ingredient name property '{}' did not contain a title value. Searching title properties on page {}.",
                     configuredPropertyName.trim(),
                     page.id()
             );
@@ -77,46 +134,6 @@ public class IngredientRawDataService {
         }
 
         return Optional.empty();
-    }
-
-    private boolean isInStock(NotionRawPage page) {
-        String stockStatusProperty = normalizeConfiguredText(notionProperties.stockStatusProperty());
-        String inStockValue = normalizeConfiguredText(notionProperties.inStockValue());
-
-        if (!StringUtils.hasText(inStockValue)) {
-            return false;
-        }
-
-        if (StringUtils.hasText(stockStatusProperty)) {
-            JsonNode property = page.properties().path(stockStatusProperty);
-            if (isInStockProperty(property, inStockValue)) {
-                return true;
-            }
-            log.info(
-                    "설정된 재고 컬럼 '{}'에서 '{}' 값을 찾지 못했습니다. page {}의 status/select 속성을 자동 탐색합니다.",
-                    stockStatusProperty.trim(),
-                    inStockValue.trim(),
-                    page.id()
-            );
-        }
-
-        for (Map.Entry<String, JsonNode> property : page.properties().properties()) {
-            if (isInStockProperty(property.getValue(), inStockValue)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private boolean isInStockProperty(JsonNode property, String inStockValue) {
-        String type = property.path("type").asText();
-        String value = switch (type) {
-            case "status" -> property.path("status").path("name").asText();
-            case "select" -> property.path("select").path("name").asText();
-            default -> "";
-        };
-        return inStockValue.trim().equals(value.trim());
     }
 
     private String normalizeConfiguredText(String value) {
@@ -153,5 +170,29 @@ public class IngredientRawDataService {
         String name = builder.toString().trim();
 
         return StringUtils.hasText(name) ? Optional.of(name) : Optional.empty();
+    }
+
+    private Optional<LocalDate> extractExpirationDate(NotionRawPage page) {
+        String expirationDateProperty = normalizeConfiguredText(notionProperties.expirationDateProperty());
+        if (!StringUtils.hasText(expirationDateProperty)) {
+            return Optional.empty();
+        }
+
+        JsonNode property = page.properties().path(expirationDateProperty);
+        if (!"date".equals(property.path("type").asText())) {
+            return Optional.empty();
+        }
+
+        String start = property.path("date").path("start").asText(null);
+        if (!StringUtils.hasText(start)) {
+            return Optional.empty();
+        }
+
+        try {
+            return Optional.of(LocalDate.parse(start.substring(0, Math.min(start.length(), 10))));
+        } catch (RuntimeException exception) {
+            log.info("Failed to parse 使用期限: page {}, value {}", page.id(), start);
+            return Optional.empty();
+        }
     }
 }

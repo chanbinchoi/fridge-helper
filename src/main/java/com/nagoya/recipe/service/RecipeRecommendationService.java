@@ -3,6 +3,7 @@ package com.nagoya.recipe.service;
 import com.nagoya.fridge.ingredient.IngredientNamesResult;
 import com.nagoya.fridge.ingredient.IngredientRawDataService;
 import com.nagoya.recipe.dto.RecipeSearchResultDto;
+import com.nagoya.recipe.mapping.IngredientNameNormalizer;
 import com.nagoya.recipe.mapping.RecipeCategoryMatcher;
 import com.nagoya.recipe.scraper.RakutenRecipeScraper;
 import com.nagoya.recipe.scraper.RakutenRecipeScraperException;
@@ -10,6 +11,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ public class RecipeRecommendationService {
     private static final int DETAIL_SCRAPE_LIMIT = 5;
 
     private final IngredientRawDataService ingredientRawDataService;
+    private final IngredientNameNormalizer ingredientNameNormalizer;
     private final RecipeCategoryMatcher recipeCategoryMatcher;
     private final RakutenRecipeScraper rakutenRecipeScraper;
 
@@ -29,7 +32,18 @@ public class RecipeRecommendationService {
             RecipeCategoryMatcher recipeCategoryMatcher,
             RakutenRecipeScraper rakutenRecipeScraper
     ) {
+        this(ingredientRawDataService, new IngredientNameNormalizer(), recipeCategoryMatcher, rakutenRecipeScraper);
+    }
+
+    @Autowired
+    public RecipeRecommendationService(
+            IngredientRawDataService ingredientRawDataService,
+            IngredientNameNormalizer ingredientNameNormalizer,
+            RecipeCategoryMatcher recipeCategoryMatcher,
+            RakutenRecipeScraper rakutenRecipeScraper
+    ) {
         this.ingredientRawDataService = ingredientRawDataService;
+        this.ingredientNameNormalizer = ingredientNameNormalizer;
         this.recipeCategoryMatcher = recipeCategoryMatcher;
         this.rakutenRecipeScraper = rakutenRecipeScraper;
     }
@@ -37,10 +51,10 @@ public class RecipeRecommendationService {
     public List<RecipeSearchResultDto> recommendRecipes() {
         IngredientNamesResult ingredientNamesResult = ingredientRawDataService.fetchIngredientNames();
         List<String> names = ingredientNamesResult.names();
-        log.info("냉장고 보유 재료: {}", names);
+        log.info("冷蔵庫の在庫食材: {}", names);
 
         List<Integer> categoryIds = recipeCategoryMatcher.matchCategoryIds(names);
-        log.info("매핑된 카테고리 ID 목록: {}", categoryIds);
+        log.info("マッピングされたカテゴリID一覧: {}", categoryIds);
 
         Map<String, RecipeSearchResultDto> recipesByLinkUrl = new LinkedHashMap<>();
 
@@ -48,7 +62,7 @@ public class RecipeRecommendationService {
             List<RecipeSearchResultDto> recipes = rakutenRecipeScraper.scrapePopularRecipesByCategory(
                     String.valueOf(categoryId)
             );
-            log.info("라쿠텐 카테고리 {} 크롤링 완료: {}건", categoryId, recipes.size());
+            log.info("楽天カテゴリ {} のクロール完了: {}件", categoryId, recipes.size());
             recipes.forEach(recipe -> recipesByLinkUrl.putIfAbsent(recipe.getLinkUrl(), recipe));
         }
 
@@ -67,7 +81,7 @@ public class RecipeRecommendationService {
                     .materials(materials)
                     .build();
         } catch (RakutenRecipeScraperException exception) {
-            log.info("레시피 상세 재료 크롤링 실패: {}", recipe.getLinkUrl());
+            log.info("レシピ詳細の材料クロールに失敗しました: {}", recipe.getLinkUrl());
             return recipe.toBuilder()
                     .materials(List.of())
                     .build();
@@ -102,22 +116,10 @@ public class RecipeRecommendationService {
         }
 
         return stockedIngredients.stream()
-                .map(this::normalizeForMatching)
-                .filter(stockedIngredient -> !stockedIngredient.isBlank())
-                .anyMatch(stockedIngredient ->
-                        normalizedMaterial.contains(stockedIngredient)
-                                || stockedIngredient.contains(normalizedMaterial)
-                );
+                .anyMatch(stockedIngredient -> ingredientNameNormalizer.matches(normalizedMaterial, stockedIngredient));
     }
 
     private String normalizeForMatching(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value
-                .replaceAll("\\s+", "")
-                .replace("　", "")
-                .trim()
-                .toLowerCase();
+        return ingredientNameNormalizer.normalizeForLookup(value);
     }
 }

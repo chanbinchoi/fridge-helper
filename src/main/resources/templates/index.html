@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>スマート冷蔵庫ナビ</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .no-scrollbar {
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
 </head>
 <body class="min-h-screen bg-zinc-50 text-zinc-900">
 <main class="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
@@ -23,20 +33,37 @@
             <h2 class="text-lg font-bold text-zinc-950">【消費期限間近】早めに使うべき食材 🚨</h2>
             <span class="text-sm text-zinc-500">まずはここから使い切りましょう</span>
         </div>
-        <div class="mt-4 flex flex-wrap gap-3">
-            <span class="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">
-                豆腐 <span class="rounded-full bg-red-600 px-2 py-0.5 text-xs text-white">残り 3日</span>
-            </span>
-            <span class="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800">
-                卵 <span class="rounded-full bg-amber-500 px-2 py-0.5 text-xs text-white">残り 5日</span>
-            </span>
+        <div id="expiringIngredients" class="mt-4 flex flex-wrap gap-3">
+            <span class="text-sm text-zinc-500">食材を読み込んでいます...</span>
         </div>
+    </section>
+
+    <section class="rounded-lg border border-orange-100 bg-white p-4 shadow-sm sm:p-5">
+        <div class="flex flex-col gap-1">
+            <h2 class="text-lg font-bold text-zinc-950">🔥 今日の人気レシピ</h2>
+            <p class="text-sm text-zinc-500">今日の総合人気ランキング TOP 5</p>
+        </div>
+        <div id="generalRankingStatus" class="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            人気レシピを読み込んでいます...
+        </div>
+        <div id="generalRankingCarousel" class="no-scrollbar mt-4 flex gap-4 overflow-x-auto pb-1"></div>
+    </section>
+
+    <section class="rounded-lg border border-emerald-100 bg-white p-4 shadow-sm sm:p-5">
+        <div class="flex flex-col gap-1">
+            <h2 class="text-lg font-bold text-zinc-950">💪 筋肥大・高タンパクレシピ</h2>
+            <p class="text-sm text-zinc-500">鶏むね肉・豆腐・肉カテゴリから選んだ TOP 5</p>
+        </div>
+        <div id="proteinRankingStatus" class="mt-4 rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+            高タンパクレシピを読み込んでいます...
+        </div>
+        <div id="proteinRankingCarousel" class="no-scrollbar mt-4 flex gap-4 overflow-x-auto pb-1"></div>
     </section>
 
     <section class="flex flex-1 flex-col rounded-lg border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
         <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
-                <h2 class="text-lg font-bold text-zinc-950">現在の食材で作れるおすすめレシピ 🍳</h2>
+                <h2 class="text-lg font-bold text-zinc-950">🍳 現在の食材で作れるおすすめレシピ</h2>
                 <p class="mt-1 text-sm text-zinc-500">食材一致率が高い順に表示しています。</p>
             </div>
             <button id="reloadButton"
@@ -57,6 +84,11 @@
     const recipeGrid = document.getElementById('recipeGrid');
     const statusMessage = document.getElementById('statusMessage');
     const reloadButton = document.getElementById('reloadButton');
+    const expiringIngredients = document.getElementById('expiringIngredients');
+    const generalRankingCarousel = document.getElementById('generalRankingCarousel');
+    const generalRankingStatus = document.getElementById('generalRankingStatus');
+    const proteinRankingCarousel = document.getElementById('proteinRankingCarousel');
+    const proteinRankingStatus = document.getElementById('proteinRankingStatus');
 
     function escapeHtml(value) {
         return String(value ?? '')
@@ -90,6 +122,68 @@
         `;
     }
 
+    function daysLabel(daysRemaining) {
+        const days = Number(daysRemaining);
+        if (!Number.isFinite(days)) {
+            return '期限未設定';
+        }
+        return days < 0 ? `${days}日` : `残り ${days}日`;
+    }
+
+    function urgencyClasses(daysRemaining) {
+        const days = Number(daysRemaining);
+        if (Number.isFinite(days) && days <= 0) {
+            return {
+                wrapper: 'border-red-200 bg-red-50 text-red-700',
+                badge: 'bg-red-600 text-white'
+            };
+        }
+        return {
+            wrapper: 'border-amber-200 bg-amber-50 text-amber-800',
+            badge: 'bg-amber-500 text-white'
+        };
+    }
+
+    function ingredientChip(ingredient) {
+        const name = escapeHtml(ingredient.name);
+        const classes = urgencyClasses(ingredient.daysRemaining);
+        return `
+            <span class="inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-bold ${classes.wrapper}">
+                ${name}
+                <span class="rounded-full px-2 py-0.5 text-xs ${classes.badge}">
+                    ${escapeHtml(daysLabel(ingredient.daysRemaining))}
+                </span>
+            </span>
+        `;
+    }
+
+    async function loadExpiringIngredients() {
+        expiringIngredients.innerHTML = '<span class="text-sm text-zinc-500">食材を読み込んでいます...</span>';
+
+        try {
+            const response = await fetch('/api/fridge/ingredients/items', { cache: 'no-store' });
+            if (!response.ok) {
+                const errorDetail = await readErrorDetail(response);
+                throw new Error(errorDetail || '食材情報の取得に失敗しました。');
+            }
+
+            const body = await response.json();
+            const items = Array.isArray(body.items) ? body.items : [];
+            const expiringItems = items
+                .filter(item => Number.isFinite(Number(item.daysRemaining)) && Number(item.daysRemaining) <= 7)
+                .sort((a, b) => Number(a.daysRemaining) - Number(b.daysRemaining));
+
+            if (expiringItems.length === 0) {
+                expiringIngredients.innerHTML = '<span class="text-sm text-zinc-500">7日以内に期限が来る食材はありません。</span>';
+                return;
+            }
+
+            expiringIngredients.innerHTML = expiringItems.map(ingredientChip).join('');
+        } catch (error) {
+            expiringIngredients.innerHTML = `<span class="text-sm text-red-600">食材情報を取得できませんでした。${escapeHtml(error.message)}</span>`;
+        }
+    }
+
     function recipeCard(recipe) {
         const title = escapeHtml(recipe.title);
         const linkUrl = escapeHtml(recipe.linkUrl);
@@ -120,13 +214,64 @@
         `;
     }
 
+    function rankingCard(recipe, index) {
+        const title = escapeHtml(recipe.title);
+        const linkUrl = escapeHtml(recipe.linkUrl);
+        const imageUrl = escapeHtml(recipe.imageUrl);
+
+        return `
+            <article class="flex w-64 shrink-0 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm sm:w-72">
+                <div class="relative">
+                    <img src="${imageUrl}" alt="${title}" class="h-36 w-full bg-zinc-100 object-cover">
+                    <span class="absolute left-3 top-3 rounded-full bg-zinc-950 px-3 py-1 text-xs font-bold text-white">
+                        #${index + 1}
+                    </span>
+                </div>
+                <div class="flex flex-1 flex-col gap-3 p-4">
+                    <h3 class="line-clamp-2 text-sm font-bold leading-6 text-zinc-950">${title}</h3>
+                    <a href="${linkUrl}" target="_blank" rel="noopener noreferrer"
+                       class="mt-auto inline-flex items-center justify-center rounded-md bg-zinc-900 px-3 py-2 text-sm font-bold text-white transition hover:bg-zinc-700">
+                        レシピを見る
+                    </a>
+                </div>
+            </article>
+        `;
+    }
+
+    async function loadRanking(endpoint, carousel, statusElement, loadingMessage, emptyMessage) {
+        carousel.innerHTML = '';
+        statusElement.classList.remove('hidden');
+        statusElement.textContent = loadingMessage;
+
+        try {
+            const response = await fetch(endpoint, { cache: 'no-store' });
+            if (!response.ok) {
+                const errorDetail = await readErrorDetail(response);
+                throw new Error(errorDetail || 'ランキング情報の取得に失敗しました。');
+            }
+
+            const recipes = await response.json();
+            const rankingRecipes = Array.isArray(recipes) ? recipes : [];
+
+            if (rankingRecipes.length === 0) {
+                statusElement.textContent = emptyMessage;
+                return;
+            }
+
+            statusElement.classList.add('hidden');
+            carousel.innerHTML = rankingRecipes.map((recipe, index) => rankingCard(recipe, index)).join('');
+        } catch (error) {
+            statusElement.textContent = `ランキング情報を取得できませんでした。${error.message}`;
+        }
+    }
+
     async function loadRecipes() {
         recipeGrid.innerHTML = '';
         statusMessage.classList.remove('hidden');
         statusMessage.textContent = 'レシピを読み込んでいます...';
 
         try {
-            const response = await fetch('/api/recipes/recommend');
+            const response = await fetch('/api/recipes/recommend', { cache: 'no-store' });
             if (!response.ok) {
                 const errorDetail = await readErrorDetail(response);
                 throw new Error(errorDetail || 'レシピ情報の取得に失敗しました。');
@@ -162,8 +307,42 @@
         }
     }
 
-    reloadButton.addEventListener('click', loadRecipes);
-    window.addEventListener('DOMContentLoaded', loadRecipes);
+    reloadButton.addEventListener('click', () => {
+        loadExpiringIngredients();
+        loadRanking(
+            '/api/recipes/ranking/general',
+            generalRankingCarousel,
+            generalRankingStatus,
+            '人気レシピを読み込んでいます...',
+            '人気レシピが見つかりませんでした。'
+        );
+        loadRanking(
+            '/api/recipes/ranking/protein',
+            proteinRankingCarousel,
+            proteinRankingStatus,
+            '高タンパクレシピを読み込んでいます...',
+            '高タンパクレシピが見つかりませんでした。'
+        );
+        loadRecipes();
+    });
+    window.addEventListener('DOMContentLoaded', () => {
+        loadExpiringIngredients();
+        loadRanking(
+            '/api/recipes/ranking/general',
+            generalRankingCarousel,
+            generalRankingStatus,
+            '人気レシピを読み込んでいます...',
+            '人気レシピが見つかりませんでした。'
+        );
+        loadRanking(
+            '/api/recipes/ranking/protein',
+            proteinRankingCarousel,
+            proteinRankingStatus,
+            '高タンパクレシピを読み込んでいます...',
+            '高タンパクレシピが見つかりませんでした。'
+        );
+        loadRecipes();
+    });
 </script>
 </body>
 </html>

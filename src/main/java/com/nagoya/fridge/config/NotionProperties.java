@@ -9,6 +9,7 @@ public record NotionProperties(
         String baseUrl,
         String version,
         String ingredientNameProperty,
+        String expirationDateProperty,
         String stockStatusProperty,
         String inStockValue
 ) {

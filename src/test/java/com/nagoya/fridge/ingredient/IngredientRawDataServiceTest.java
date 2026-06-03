@@ -6,7 +6,10 @@ import com.nagoya.fridge.config.NotionProperties;
 import com.nagoya.fridge.notion.NotionClient;
 import com.nagoya.fridge.notion.NotionRawPage;
 import com.nagoya.fridge.notion.NotionRawQueryResult;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -52,7 +55,7 @@ class IngredientRawDataServiceTest {
     }
 
     @Test
-    void fetchIngredientNamesOnlyIncludesPagesWithInStockStatus() throws Exception {
+    void fetchIngredientNamesUsesAlreadyFetchedPagesWithoutAdditionalStatusFiltering() throws Exception {
         IngredientRawDataService service = new IngredientRawDataService(
                 notionClient(List.of(
                         notionPage("page-1", false, false, "卵", "在庫あり"),
@@ -64,8 +67,41 @@ class IngredientRawDataServiceTest {
 
         IngredientNamesResult result = service.fetchIngredientNames();
 
-        assertThat(result.count()).isEqualTo(1);
-        assertThat(result.names()).containsExactly("卵");
+        assertThat(result.count()).isEqualTo(3);
+        assertThat(result.names()).containsExactly("卵", "牛乳", "豆腐");
+    }
+
+    @Test
+    void fetchIngredientNamesIncludesPagesRegardlessOfOtherStatusProperties() throws Exception {
+        IngredientRawDataService service = new IngredientRawDataService(
+                notionClient(List.of(notionPageWithExtraStatus("page-1", "牛乳", "在庫なし", "在庫あり"))),
+                notionProperties("食材名")
+        );
+
+        IngredientNamesResult result = service.fetchIngredientNames();
+
+        assertThat(result.names()).containsExactly("牛乳");
+    }
+
+    @Test
+    void fetchIngredientItemsKeepsOriginalDisplayNameAndCalculatesDdayFromExpirationDate() throws Exception {
+        Clock clock = Clock.fixed(Instant.parse("2026-06-02T00:00:00Z"), ZoneOffset.UTC);
+        IngredientRawDataService service = new IngredientRawDataService(
+                notionClient(List.of(
+                        notionPage("page-1", false, false, "もめん豆腐", "在庫あり", "2026-06-01"),
+                        notionPage("page-2", false, false, "食パン", "在庫あり", "2026-06-02"),
+                        notionPage("page-3", false, false, "卵", "在庫あり", "2026-06-09")
+                )),
+                notionProperties("食材名"),
+                clock.withZone(ZoneId.of("Asia/Tokyo"))
+        );
+
+        IngredientItemsResult result = service.fetchIngredientItems();
+
+        assertThat(result.items()).extracting(IngredientItemDto::name)
+                .containsExactly("もめん豆腐", "食パン", "卵");
+        assertThat(result.items()).extracting(IngredientItemDto::daysRemaining)
+                .containsExactly(-1, 0, 7);
     }
 
     @Test
@@ -102,6 +138,7 @@ class IngredientRawDataServiceTest {
                         "https://api.notion.test",
                         "2026-03-11",
                         "食材名",
+                        "使用期限",
                         "実際には存在しない在庫列",
                         "在庫あり"
                 )
@@ -122,6 +159,7 @@ class IngredientRawDataServiceTest {
                         "https://api.notion.test",
                         "2026-03-11",
                         "食材名",
+                        "使用期限",
                         "å¨åº«ã¹ãã¼ã¿ã¹",
                         "å¨åº«ãã"
                 )
@@ -162,6 +200,17 @@ class IngredientRawDataServiceTest {
             String name,
             String stockStatus
     ) throws Exception {
+        return notionPage(id, archived, inTrash, name, stockStatus, "2026-06-09");
+    }
+
+    private NotionRawPage notionPage(
+            String id,
+            boolean archived,
+            boolean inTrash,
+            String name,
+            String stockStatus,
+            String expirationDate
+    ) throws Exception {
         return new NotionRawPage(
                 id,
                 "https://notion.so/" + id,
@@ -180,9 +229,51 @@ class IngredientRawDataServiceTest {
                             "status": {
                               "name": "%s"
                             }
+                          },
+                          "使用期限": {
+                            "type": "date",
+                            "date": {
+                              "start": "%s"
+                            }
                           }
                         }
-                        """.formatted(name, stockStatus))
+                        """.formatted(name, stockStatus, expirationDate))
+        );
+    }
+
+    private NotionRawPage notionPageWithExtraStatus(
+            String id,
+            String name,
+            String stockStatus,
+            String extraStatus
+    ) throws Exception {
+        return new NotionRawPage(
+                id,
+                "https://notion.so/" + id,
+                "2026-05-25T10:00:00.000Z",
+                "2026-05-25T11:00:00.000Z",
+                false,
+                false,
+                objectMapper.readTree("""
+                        {
+                          "食材名": {
+                            "type": "title",
+                            "title": [{ "plain_text": "%s" }]
+                          },
+                          "在庫ステータス": {
+                            "type": "status",
+                            "status": {
+                              "name": "%s"
+                            }
+                          },
+                          "別ステータス": {
+                            "type": "status",
+                            "status": {
+                              "name": "%s"
+                            }
+                          }
+                        }
+                        """.formatted(name, stockStatus, extraStatus))
         );
     }
 
@@ -193,6 +284,7 @@ class IngredientRawDataServiceTest {
                 "https://api.notion.test",
                 "2026-03-11",
                 ingredientNameProperty,
+                "使用期限",
                 "在庫ステータス",
                 "在庫あり"
         );

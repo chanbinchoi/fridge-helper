@@ -55,12 +55,12 @@ class RecipeRecommendationServiceTest {
                 .title("豚肉卵炒め")
                 .linkUrl("https://recipe.rakuten.co.jp/recipe/pork-egg/")
                 .imageUrl("https://recipe.r10s.jp/pork-egg.jpg")
-                .materials(List.of("豚肉（バラ）", "卵", "玉ねぎ"))
+                .materials(List.of("豚肉（バラ）", "たまご", "ゴマ油", "玉ねぎ"))
                 .build();
 
-        RecipeSearchResultDto scored = service.scoreRecipe(recipe, List.of("豚肉", "卵"));
+        RecipeSearchResultDto scored = service.scoreRecipe(recipe, List.of("豚肉", "卵", "胡麻油"));
 
-        assertThat(scored.getMatchRate()).isEqualTo(66.66666666666666);
+        assertThat(scored.getMatchRate()).isEqualTo(75.0);
         assertThat(scored.getMissingMaterials()).containsExactly("玉ねぎ");
     }
 

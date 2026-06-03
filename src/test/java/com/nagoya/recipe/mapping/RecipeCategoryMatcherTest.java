@@ -11,8 +11,8 @@ class RecipeCategoryMatcherTest {
 
     @Test
     void matchCategoryIdsReturnsMappedRakutenCategoryIdsInOrder() {
-        List<Integer> categoryIds = matcher.matchCategoryIds(List.of("卵", "豆腐", "豚こま肉", "豚肉", "未対応"));
+        List<Integer> categoryIds = matcher.matchCategoryIds(List.of("たまご", "豆腐", "豚こま肉", "豚肉", "ゴマ油", "未対応"));
 
-        assertThat(categoryIds).containsExactly(33, 35, 10);
+        assertThat(categoryIds).containsExactly(33, 35, 10, 19);
     }
 }

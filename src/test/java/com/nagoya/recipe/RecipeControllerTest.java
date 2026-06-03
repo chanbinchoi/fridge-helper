@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.nagoya.recipe.dto.RecipeSearchResultDto;
 import com.nagoya.recipe.scraper.RakutenRecipeScraper;
+import com.nagoya.recipe.service.RecipeRankingService;
 import com.nagoya.recipe.service.RecipeRecommendationService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -28,7 +29,7 @@ class RecipeControllerTest {
         };
 
         MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(new RecipeController(scraper, null))
+                .standaloneSetup(new RecipeController(scraper, null, null))
                 .build();
 
         mockMvc.perform(get("/api/recipes/test"))
@@ -52,7 +53,7 @@ class RecipeControllerTest {
         };
 
         MockMvc mockMvc = MockMvcBuilders
-                .standaloneSetup(new RecipeController(null, recommendationService))
+                .standaloneSetup(new RecipeController(null, null, recommendationService))
                 .build();
 
         mockMvc.perform(get("/api/recipes/recommend"))
@@ -60,5 +61,53 @@ class RecipeControllerTest {
                 .andExpect(jsonPath("$[0].title").value("おすすめレシピ"))
                 .andExpect(jsonPath("$[0].linkUrl").value("https://recipe.rakuten.co.jp/recipe/recommend/"))
                 .andExpect(jsonPath("$[0].imageUrl").value("https://recipe.r10s.jp/recommend.jpg"));
+    }
+
+    @Test
+    void generalRankingReturnsRankingResults() throws Exception {
+        RecipeRankingService rankingService = new RecipeRankingService("app-id", "access-key", null) {
+            @Override
+            public List<RecipeSearchResultDto> generalRanking() {
+                return List.of(RecipeSearchResultDto.builder()
+                        .title("総合人気レシピ")
+                        .linkUrl("https://recipe.rakuten.co.jp/recipe/general/")
+                        .imageUrl("https://recipe.r10s.jp/general.jpg")
+                        .build());
+            }
+        };
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new RecipeController(null, rankingService, null))
+                .build();
+
+        mockMvc.perform(get("/api/recipes/ranking/general"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].title").value("総合人気レシピ"))
+                .andExpect(jsonPath("$[0].linkUrl").value("https://recipe.rakuten.co.jp/recipe/general/"))
+                .andExpect(jsonPath("$[0].imageUrl").value("https://recipe.r10s.jp/general.jpg"));
+    }
+
+    @Test
+    void proteinRankingReturnsRankingResults() throws Exception {
+        RecipeRankingService rankingService = new RecipeRankingService("app-id", "access-key", null) {
+            @Override
+            public List<RecipeSearchResultDto> proteinRanking() {
+                return List.of(RecipeSearchResultDto.builder()
+                        .title("高タンパクレシピ")
+                        .linkUrl("https://recipe.rakuten.co.jp/recipe/protein/")
+                        .imageUrl("https://recipe.r10s.jp/protein.jpg")
+                        .build());
+            }
+        };
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new RecipeController(null, rankingService, null))
+                .build();
+
+        mockMvc.perform(get("/api/recipes/ranking/protein"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].title").value("高タンパクレシピ"))
+                .andExpect(jsonPath("$[0].linkUrl").value("https://recipe.rakuten.co.jp/recipe/protein/"))
+                .andExpect(jsonPath("$[0].imageUrl").value("https://recipe.r10s.jp/protein.jpg"));
     }
 }

@@ -1,6 +1,7 @@
 package com.nagoya.fridge.ingredient;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -55,6 +56,7 @@ class IngredientControllerTest {
 
         mockMvc.perform(get("/api/fridge/ingredients/raw"))
                 .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.databaseId").value("database-id"))
                 .andExpect(jsonPath("$.dataSourceId").value("data-source-id"))
                 .andExpect(jsonPath("$.count").value(1))
@@ -87,8 +89,37 @@ class IngredientControllerTest {
 
         mockMvc.perform(get("/api/fridge/ingredients/names"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.count").value(1))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.count").value(2))
                 .andExpect(jsonPath("$.names[0]").value("卵"));
+    }
+
+    @Test
+    void getIngredientItemsReturnsOriginalNamesAndDaysRemaining() throws Exception {
+        NotionRawQueryResult result = new NotionRawQueryResult(
+                "database-id",
+                "data-source-id",
+                Instant.parse("2026-05-26T00:00:00Z"),
+                1,
+                List.of(notionPage("page-1", false, false, "もめん豆腐", "在庫なし", "2026-06-01"))
+        );
+        IngredientRawDataService service = new IngredientRawDataService(null, notionProperties("食材名")) {
+            @Override
+            public NotionRawQueryResult fetchRawIngredients() {
+                return result;
+            }
+        };
+
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new IngredientController(service))
+                .build();
+
+        mockMvc.perform(get("/api/fridge/ingredients/items"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.count").value(1))
+                .andExpect(jsonPath("$.items[0].name").value("もめん豆腐"))
+                .andExpect(jsonPath("$.items[0].expirationDate").value("2026-06-01"));
     }
 
     private NotionRawPage notionPage(String id, boolean archived, boolean inTrash, String name) throws Exception {
@@ -101,6 +132,17 @@ class IngredientControllerTest {
             boolean inTrash,
             String name,
             String stockStatus
+    ) throws Exception {
+        return notionPage(id, archived, inTrash, name, stockStatus, "2026-06-09");
+    }
+
+    private NotionRawPage notionPage(
+            String id,
+            boolean archived,
+            boolean inTrash,
+            String name,
+            String stockStatus,
+            String expirationDate
     ) throws Exception {
         return new NotionRawPage(
                 id,
@@ -120,9 +162,15 @@ class IngredientControllerTest {
                             "status": {
                               "name": "%s"
                             }
+                          },
+                          "使用期限": {
+                            "type": "date",
+                            "date": {
+                              "start": "%s"
+                            }
                           }
                         }
-                        """.formatted(name, stockStatus))
+                        """.formatted(name, stockStatus, expirationDate))
         );
     }
 
@@ -133,6 +181,7 @@ class IngredientControllerTest {
                 "https://api.notion.test",
                 "2026-03-11",
                 ingredientNameProperty,
+                "使用期限",
                 "在庫ステータス",
                 "在庫あり"
         );
