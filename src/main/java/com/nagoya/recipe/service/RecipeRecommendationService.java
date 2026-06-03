@@ -74,7 +74,7 @@ public class RecipeRecommendationService {
                 .toList();
     }
 
-    private RecipeSearchResultDto withScrapedMaterials(RecipeSearchResultDto recipe) {
+    RecipeSearchResultDto withScrapedMaterials(RecipeSearchResultDto recipe) {
         try {
             List<String> materials = rakutenRecipeScraper.scrapeRecipeMaterials(recipe.getLinkUrl());
             return recipe.toBuilder()

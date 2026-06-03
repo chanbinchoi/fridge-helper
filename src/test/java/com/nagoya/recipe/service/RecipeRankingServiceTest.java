@@ -6,8 +6,11 @@ import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import com.nagoya.fridge.ingredient.IngredientNamesResult;
+import com.nagoya.fridge.ingredient.IngredientRawDataService;
 import com.nagoya.recipe.dto.RecipeSearchResultDto;
 import com.nagoya.recipe.rakuten.RakutenRecipeApiException;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -32,6 +35,7 @@ class RecipeRankingServiceTest {
                 })
                 .andExpect(header("accessKey", "access-key"))
                 .andExpect(header("Referer", "https://policies-soonest-essex-amounts.trycloudflare.com"))
+                .andExpect(header("Origin", "https://policies-soonest-essex-amounts.trycloudflare.com"))
                 .andRespond(withSuccess("""
                         {
                           "result": [
@@ -87,10 +91,12 @@ class RecipeRankingServiceTest {
         server.expect(once(), request -> assertThat(request.getURI().toString()).contains("categoryId=10-277-1119"))
                 .andExpect(header("accessKey", "access-key"))
                 .andExpect(header("Referer", "https://policies-soonest-essex-amounts.trycloudflare.com"))
+                .andExpect(header("Origin", "https://policies-soonest-essex-amounts.trycloudflare.com"))
                 .andRespond(withSuccess(rankingResponse("chicken", "shared"), MediaType.APPLICATION_JSON));
         server.expect(once(), request -> assertThat(request.getURI().toString()).contains("categoryId=30-315"))
                 .andExpect(header("accessKey", "access-key"))
                 .andExpect(header("Referer", "https://policies-soonest-essex-amounts.trycloudflare.com"))
+                .andExpect(header("Origin", "https://policies-soonest-essex-amounts.trycloudflare.com"))
                 .andRespond(withSuccess(rankingResponse("shared", "tofu", "tofu2", "tofu3"), MediaType.APPLICATION_JSON));
 
         RecipeRankingService service = rankingService(builder.build());
@@ -120,6 +126,46 @@ class RecipeRankingServiceTest {
         assertThatThrownBy(service::generalRanking)
                 .isInstanceOf(RakutenRecipeApiException.class)
                 .hasMessageContaining("Missing rakuten.recipe.application-id");
+    }
+
+    @Test
+    void generalRankingAddsMatchRateAndMissingMaterials() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://openapi.rakuten.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+
+        server.expect(once(), request -> assertThat(request.getURI().toString()).contains("applicationId=app-id"))
+                .andExpect(header("Referer", "https://policies-soonest-essex-amounts.trycloudflare.com"))
+                .andExpect(header("Origin", "https://policies-soonest-essex-amounts.trycloudflare.com"))
+                .andRespond(withSuccess(rankingResponse("tofu"), MediaType.APPLICATION_JSON));
+
+        IngredientRawDataService ingredientRawDataService = new IngredientRawDataService(null, null) {
+            @Override
+            public IngredientNamesResult fetchIngredientNames() {
+                return new IngredientNamesResult(Instant.parse("2026-06-04T00:00:00Z"), 1, List.of("豆腐"));
+            }
+        };
+        RecipeRecommendationService recommendationService = new RecipeRecommendationService(null, null, null) {
+            @Override
+            RecipeSearchResultDto withScrapedMaterials(RecipeSearchResultDto recipe) {
+                return recipe.toBuilder()
+                        .materials(List.of("豆腐", "卵"))
+                        .build();
+            }
+        };
+        RecipeRankingService service = new RecipeRankingService(
+                "app-id",
+                "access-key",
+                builder.build(),
+                ingredientRawDataService,
+                recommendationService
+        );
+
+        List<RecipeSearchResultDto> recipes = service.generalRanking();
+
+        assertThat(recipes).hasSize(1);
+        assertThat(recipes.getFirst().getMatchRate()).isEqualTo(50.0);
+        assertThat(recipes.getFirst().getMissingMaterials()).containsExactly("卵");
+        server.verify();
     }
 
     private RecipeRankingService rankingService(RestClient restClient) {
